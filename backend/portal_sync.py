@@ -115,12 +115,15 @@ class PortalSyncService:
             )
             notes_response.raise_for_status()
             self._write_debug_html("periodos.html", notes_response.text)
+            page_debug = self._describe_page(notes_response.text, notes_response.url)
 
             if self._looks_like_login_page(notes_response.text, notes_response.url):
+                print(f"Portal sync debug: {page_debug}")
                 return {
                     "status": "error",
                     "status_code": 401,
                     "message": "A sessao do portal expirou ou voltou para a tela de login.",
+                    "debug": page_debug,
                 }
 
             periods = self._extract_periods(
@@ -130,10 +133,12 @@ class PortalSyncService:
             )
 
             if not periods:
+                print(f"Portal sync debug: {page_debug}")
                 return {
                     "status": "error",
                     "status_code": 502,
                     "message": "Nao foi possivel identificar os periodos na pagina de notas.",
+                    "debug": page_debug,
                 }
 
             return {
@@ -235,6 +240,25 @@ class PortalSyncService:
 
         action = str(form.get("action", "")).lower()
         return "j_security_check" in action
+
+    @staticmethod
+    def _describe_page(html: str, url: str) -> dict[str, Any]:
+        soup = BeautifulSoup(html, "html.parser")
+        title = soup.title.get_text(" ", strip=True) if soup.title else ""
+        semester_matches = re.findall(r"\d+\.\s*Semestre\s*/\s*\d{4}", html, flags=re.IGNORECASE)
+        accordion = soup.find(class_="accordionTurma")
+        disciplina_header = soup.find(string=re.compile(r"disciplina", re.IGNORECASE))
+        notas_icon = soup.find("img", src=re.compile(r"notas_icon", re.IGNORECASE))
+
+        return {
+            "url": url,
+            "title": title,
+            "semesterPreview": semester_matches[:3],
+            "firstAccordionLabel": accordion.get_text(" ", strip=True) if accordion else None,
+            "hasDisciplinaHeader": bool(disciplina_header),
+            "hasNotasIcon": bool(notas_icon),
+            "bodyLength": len(html),
+        }
 
     @staticmethod
     def _extract_periods(
