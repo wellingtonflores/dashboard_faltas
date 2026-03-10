@@ -56,6 +56,7 @@ export default function App() {
   const [syncing, setSyncing] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const isLoadingPortal = checkingSession || loggingIn || syncing
 
   useEffect(() => {
     void loadSession()
@@ -150,7 +151,7 @@ export default function App() {
 
       setAuthenticated(true)
       setLoginForm((current) => ({ ...current, password: '' }))
-      setMessage('Login realizado com sucesso.')
+      setMessage('Login realizado com sucesso. Carregando os dados do portal...')
       await handleSync()
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : 'Falha ao entrar no portal.')
@@ -347,7 +348,7 @@ export default function App() {
             onClick={() => void handleSync()}
             disabled={syncing}
           >
-            {syncing ? 'Atualizando...' : 'Atualizar'}
+            {syncing ? 'Buscando no portal...' : 'Atualizar'}
           </button>
           <button className="ghost-button" type="button" onClick={() => void handleLogout()}>
             Sair
@@ -401,6 +402,18 @@ export default function App() {
               <strong>{absenceSummary.totalAbsences}</strong>
             </div>
           </div>
+          {isLoadingPortal ? (
+            <div className="loading-card" aria-live="polite">
+              <div className="loading-dot" />
+              <div>
+                <strong>Buscando dados no portal...</strong>
+                <p>
+                  Isso pode levar alguns segundos enquanto o sistema entra no portal e carrega
+                  as disciplinas.
+                </p>
+              </div>
+            </div>
+          ) : null}
           {message ? <p className="feedback success">{message}</p> : null}
           {error ? <p className="feedback error">{error}</p> : null}
         </article>
@@ -492,7 +505,17 @@ export default function App() {
           </div>
         </div>
 
-        {!selectedPeriod ? (
+        {isLoadingPortal ? (
+          <div className="loading-state" aria-live="polite">
+            <div className="loading-spinner" />
+            <div>
+              <strong>Carregando disciplinas...</strong>
+              <p className="empty-state">
+                O backend ainda esta consultando o portal da universidade.
+              </p>
+            </div>
+          </div>
+        ) : !selectedPeriod ? (
           <p className="empty-state">Nenhum periodo carregado ainda.</p>
         ) : filteredSubjects.length === 0 ? (
           <p className="empty-state">
