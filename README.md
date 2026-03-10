@@ -62,6 +62,7 @@ Neste portal especifico, pode ser necessario desativar a verificacao SSL na tela
 2. O backend usa `gunicorn` e, em produção, prefere sessão em Redis via `REDIS_URL`.
 3. Defina `FRONTEND_URL` com a URL da Vercel.
 4. Em produção, use `SESSION_COOKIE_SECURE=true`.
+5. Para frontend na Vercel e backend em outro domínio, use `SESSION_COOKIE_SAMESITE=None`.
 
 ### Backend no Railway
 
