@@ -18,3 +18,4 @@ dist/
 # App data
 backend/data/debug/
 backend/data/*.db
+backend/flask_session/
