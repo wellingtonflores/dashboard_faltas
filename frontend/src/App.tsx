@@ -43,6 +43,10 @@ function apiUrl(path: string) {
   return apiBaseUrl ? `${apiBaseUrl}${path}` : path
 }
 
+function wait(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
+}
+
 export default function App() {
   const [loginForm, setLoginForm] = useState<LoginState>(defaultLogin)
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
@@ -115,31 +119,47 @@ export default function App() {
   }
 
   async function syncPortal() {
-    const response = await fetch(apiUrl('/api/sync'), {
-      method: 'POST',
-      credentials: 'include',
-    })
-    const data = await response.json()
-    if (!response.ok) {
-      throw new Error(data.message || 'Falha ao carregar periodos.')
+    let lastError: Error | null = null
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await fetch(apiUrl('/api/sync'), {
+          method: 'POST',
+          credentials: 'include',
+        })
+        const data = await response.json()
+        if (!response.ok) {
+          throw new Error(data.message || 'Falha ao carregar periodos.')
+        }
+
+        const nextPeriods = (data.periods ?? []) as Period[]
+        if (!nextPeriods.length) {
+          throw new Error('Nao foi possivel identificar os periodos na pagina de notas.')
+        }
+
+        const nextSelectedPeriodKey = nextPeriods.some((period) => period.key === selectedPeriodKey)
+          ? selectedPeriodKey
+          : (nextPeriods[0]?.key ?? '')
+
+        setPeriods(nextPeriods)
+        setSelectedPeriodKey(nextSelectedPeriodKey)
+        setSearchTerm('')
+        setVisibleSubjects(getDefaultVisibleSubjects(nextPeriods, nextSelectedPeriodKey))
+        setMessage(`${nextPeriods.length} periodo(s) carregados.`)
+
+        return nextPeriods
+      } catch (error) {
+        lastError =
+          error instanceof Error ? error : new Error('Falha ao carregar periodos.')
+
+        if (attempt === 0) {
+          await wait(1200)
+          continue
+        }
+      }
     }
 
-    const nextPeriods = (data.periods ?? []) as Period[]
-    const nextSelectedPeriodKey = nextPeriods.some((period) => period.key === selectedPeriodKey)
-      ? selectedPeriodKey
-      : (nextPeriods[0]?.key ?? '')
-
-    setPeriods(nextPeriods)
-    setSelectedPeriodKey(nextSelectedPeriodKey)
-    setSearchTerm('')
-    setVisibleSubjects(getDefaultVisibleSubjects(nextPeriods, nextSelectedPeriodKey))
-    setMessage(
-      nextPeriods.length
-        ? `${nextPeriods.length} periodo(s) carregados.`
-        : 'Nenhum periodo foi identificado na pagina.',
-    )
-
-    return nextPeriods
+    throw lastError ?? new Error('Falha ao carregar periodos.')
   }
 
   async function loadSession() {
@@ -155,8 +175,12 @@ export default function App() {
         await syncPortal()
         setAuthenticated(true)
       }
-    } catch {
-      setError('Nao foi possivel verificar a sessao atual.')
+    } catch (sessionError) {
+      setError(
+        sessionError instanceof Error
+          ? sessionError.message
+          : 'Nao foi possivel verificar a sessao atual.',
+      )
     } finally {
       setPreparingDashboard(false)
       setCheckingSession(false)

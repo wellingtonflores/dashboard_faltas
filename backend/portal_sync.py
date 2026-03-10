@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import os
 import re
 import unicodedata
 from dataclasses import dataclass
 from hashlib import sha1
-import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 
 
@@ -92,7 +93,7 @@ class PortalSyncService:
             return {
                 "status": "error",
                 "status_code": 401,
-                "message": "Faça login no portal antes de sincronizar.",
+                "message": "Faca login no portal antes de sincronizar.",
             }
 
         session = self._restore_session(portal_session)
@@ -114,11 +115,26 @@ class PortalSyncService:
             )
             notes_response.raise_for_status()
             self._write_debug_html("periodos.html", notes_response.text)
+
+            if self._looks_like_login_page(notes_response.text, notes_response.url):
+                return {
+                    "status": "error",
+                    "status_code": 401,
+                    "message": "A sessao do portal expirou ou voltou para a tela de login.",
+                }
+
             periods = self._extract_periods(
                 notes_response.text,
                 notes_response.url,
                 session,
             )
+
+            if not periods:
+                return {
+                    "status": "error",
+                    "status_code": 502,
+                    "message": "Nao foi possivel identificar os periodos na pagina de notas.",
+                }
 
             return {
                 "status": "success",
@@ -143,6 +159,9 @@ class PortalSyncService:
 
     @staticmethod
     def _build_session(verify_ssl: bool) -> requests.Session:
+        if not verify_ssl:
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
         session = requests.Session()
         session.verify = verify_ssl
         session.headers.update(
@@ -203,6 +222,19 @@ class PortalSyncService:
         if not form or not form.get("action"):
             raise ValueError("Nao encontrei o formulario de login no portal.")
         return urljoin(base_url, str(form["action"]))
+
+    @staticmethod
+    def _looks_like_login_page(html: str, url: str) -> bool:
+        if "login.action" in url:
+            return True
+
+        soup = BeautifulSoup(html, "html.parser")
+        form = soup.find("form")
+        if not form:
+            return False
+
+        action = str(form.get("action", "")).lower()
+        return "j_security_check" in action
 
     @staticmethod
     def _extract_periods(
@@ -302,7 +334,11 @@ class PortalSyncService:
             response = session.get(note_url, timeout=30)
             response.raise_for_status()
             PortalSyncService._write_debug_html(
-                f"nota_{PortalSyncService._safe_filename(subject_name)}_{PortalSyncService._safe_filename(note_url)}.html",
+                (
+                    "nota_"
+                    f"{PortalSyncService._safe_filename(subject_name)}_"
+                    f"{PortalSyncService._safe_filename(note_url)}.html"
+                ),
                 response.text,
             )
             return PortalSyncService._parse_note_page(response.text)
@@ -332,8 +368,7 @@ class PortalSyncService:
                     return extracted
                 return urljoin(base_url, href)
 
-        links = row.find_all("a")
-        for anchor in links:
+        for anchor in row.find_all("a"):
             text = anchor.get_text(" ", strip=True).lower()
             if "ver notas" in text and anchor.get("href"):
                 href = str(anchor["href"])
@@ -553,8 +588,7 @@ class PortalSyncService:
 
     @staticmethod
     def _clean_optional_text(value: str) -> str:
-        cleaned = value.replace("\xa0", " ").strip()
-        return cleaned
+        return value.replace("\xa0", " ").strip()
 
     @staticmethod
     def _parse_period_label(label: str) -> tuple[int, int]:
