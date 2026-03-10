@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 import unicodedata
 from dataclasses import dataclass
 from hashlib import sha1
@@ -108,14 +109,9 @@ class PortalSyncService:
             }
 
         try:
-            notes_response = session.get(
-                notes_url,
-                params={"matricula": matricula},
-                timeout=30,
-            )
-            notes_response.raise_for_status()
+            notes_response = self._fetch_notes_page(session, notes_url, matricula)
             self._write_debug_html("periodos.html", notes_response.text)
-            page_debug = self._describe_page(notes_response.text, notes_response.url)
+            page_debug = self._describe_page(notes_response)
 
             if self._looks_like_login_page(notes_response.text, notes_response.url):
                 print(f"Portal sync debug: {page_debug}")
@@ -161,6 +157,57 @@ class PortalSyncService:
                 "message": "Nao foi possivel carregar a pagina de notas.",
                 "debug": {"error": str(error)},
             }
+
+    def _fetch_notes_page(
+        self,
+        session: requests.Session,
+        notes_url: str,
+        matricula: str,
+    ) -> requests.Response:
+        index_url = urljoin(notes_url, "/aluno/index.action")
+        attempts: list[tuple[str, dict[str, str]]] = [
+            (
+                index_url,
+                {},
+            ),
+            (
+                notes_url,
+                {"Referer": index_url},
+            ),
+            (
+                notes_url,
+                {"Referer": index_url, "Cache-Control": "no-cache", "Pragma": "no-cache"},
+            ),
+        ]
+
+        last_response: requests.Response | None = None
+
+        for url, headers in attempts:
+            if url == notes_url:
+                response = session.get(
+                    url,
+                    params={"matricula": matricula},
+                    headers=headers,
+                    timeout=30,
+                )
+            else:
+                response = session.get(url, headers=headers, timeout=30)
+
+            response.raise_for_status()
+            last_response = response
+
+            if url != notes_url:
+                continue
+
+            if response.text.strip():
+                return response
+
+            time.sleep(1)
+
+        if last_response is None:
+            raise ValueError("Nao foi possivel carregar a pagina de notas.")
+
+        return last_response
 
     @staticmethod
     def _build_session(verify_ssl: bool) -> requests.Session:
@@ -242,7 +289,9 @@ class PortalSyncService:
         return "j_security_check" in action
 
     @staticmethod
-    def _describe_page(html: str, url: str) -> dict[str, Any]:
+    def _describe_page(response: requests.Response) -> dict[str, Any]:
+        html = response.text
+        url = response.url
         soup = BeautifulSoup(html, "html.parser")
         title = soup.title.get_text(" ", strip=True) if soup.title else ""
         semester_matches = re.findall(r"\d+\.\s*Semestre\s*/\s*\d{4}", html, flags=re.IGNORECASE)
@@ -252,6 +301,9 @@ class PortalSyncService:
 
         return {
             "url": url,
+            "statusCode": response.status_code,
+            "history": [item.status_code for item in response.history],
+            "contentType": response.headers.get("Content-Type"),
             "title": title,
             "semesterPreview": semester_matches[:3],
             "firstAccordionLabel": accordion.get_text(" ", strip=True) if accordion else None,
