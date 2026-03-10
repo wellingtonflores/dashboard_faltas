@@ -117,6 +117,11 @@ button {
   gap: 28px;
 }
 
+.loading-screen {
+  width: min(560px, 100%);
+  grid-template-columns: 1fr;
+}
+
 .login-copy h1,
 .dashboard-title,
 .panel h2,
@@ -314,6 +319,10 @@ select:focus {
 
 .loading-state {
   min-height: 140px;
+}
+
+.loading-state-full {
+  min-height: 220px;
 }
 
 .summary-inline {

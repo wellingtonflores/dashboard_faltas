@@ -52,11 +52,12 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('')
   const [visibleSubjects, setVisibleSubjects] = useState<string[]>([])
   const [checkingSession, setCheckingSession] = useState(true)
+  const [preparingDashboard, setPreparingDashboard] = useState(false)
   const [loggingIn, setLoggingIn] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const isLoadingPortal = checkingSession || loggingIn || syncing
+  const isLoadingPortal = loggingIn || syncing || preparingDashboard
 
   useEffect(() => {
     void loadSession()
@@ -73,11 +74,6 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', theme)
     window.localStorage.setItem('theme', theme)
   }, [theme])
-
-  useEffect(() => {
-    setSearchTerm('')
-    setVisibleSubjects([])
-  }, [selectedPeriodKey])
 
   const selectedPeriod = useMemo(
     () => periods.find((period) => period.key === selectedPeriodKey) ?? periods[0] ?? null,
@@ -113,26 +109,62 @@ export default function App() {
     }
   }, [filteredSubjects])
 
+  function getDefaultVisibleSubjects(nextPeriods: Period[], periodKey: string) {
+    const period = nextPeriods.find((item) => item.key === periodKey) ?? nextPeriods[0] ?? null
+    return period?.subjects.map((subject) => subject.name) ?? []
+  }
+
+  async function syncPortal() {
+    const response = await fetch(apiUrl('/api/sync'), {
+      method: 'POST',
+      credentials: 'include',
+    })
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.message || 'Falha ao carregar periodos.')
+    }
+
+    const nextPeriods = (data.periods ?? []) as Period[]
+    const nextSelectedPeriodKey = nextPeriods.some((period) => period.key === selectedPeriodKey)
+      ? selectedPeriodKey
+      : (nextPeriods[0]?.key ?? '')
+
+    setPeriods(nextPeriods)
+    setSelectedPeriodKey(nextSelectedPeriodKey)
+    setSearchTerm('')
+    setVisibleSubjects(getDefaultVisibleSubjects(nextPeriods, nextSelectedPeriodKey))
+    setMessage(
+      nextPeriods.length
+        ? `${nextPeriods.length} periodo(s) carregados.`
+        : 'Nenhum periodo foi identificado na pagina.',
+    )
+
+    return nextPeriods
+  }
+
   async function loadSession() {
     try {
       setCheckingSession(true)
       const response = await fetch(apiUrl('/api/session'), { credentials: 'include' })
       const data = (await response.json()) as SessionStatus
-      setAuthenticated(data.authenticated)
       if (data.matricula) {
         setLoginForm((current) => ({ ...current, matricula: data.matricula ?? '' }))
       }
       if (data.authenticated) {
-        await handleSync()
+        setPreparingDashboard(true)
+        await syncPortal()
+        setAuthenticated(true)
       }
     } catch {
       setError('Nao foi possivel verificar a sessao atual.')
     } finally {
+      setPreparingDashboard(false)
       setCheckingSession(false)
     }
   }
 
   async function handleLogin() {
+    setPreparingDashboard(true)
     setLoggingIn(true)
     setError(null)
     setMessage(null)
@@ -149,14 +181,15 @@ export default function App() {
         throw new Error(data.message || 'Falha ao entrar no portal.')
       }
 
-      setAuthenticated(true)
       setLoginForm((current) => ({ ...current, password: '' }))
       setMessage('Login realizado com sucesso. Carregando os dados do portal...')
-      await handleSync()
+      await syncPortal()
+      setAuthenticated(true)
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : 'Falha ao entrar no portal.')
     } finally {
       setLoggingIn(false)
+      setPreparingDashboard(false)
     }
   }
 
@@ -184,27 +217,7 @@ export default function App() {
     setError(null)
 
     try {
-      const response = await fetch(apiUrl('/api/sync'), {
-        method: 'POST',
-        credentials: 'include',
-      })
-      const data = await response.json()
-      if (!response.ok) {
-        throw new Error(data.message || 'Falha ao carregar periodos.')
-      }
-
-      const nextPeriods = (data.periods ?? []) as Period[]
-      setPeriods(nextPeriods)
-      setSelectedPeriodKey((current) =>
-        nextPeriods.some((period) => period.key === current) ? current : (nextPeriods[0]?.key ?? ''),
-      )
-      setSearchTerm('')
-      setVisibleSubjects([])
-      setMessage(
-        nextPeriods.length
-          ? `${nextPeriods.length} periodo(s) carregados.`
-          : 'Nenhum periodo foi identificado na pagina.',
-      )
+      await syncPortal()
     } catch (syncError) {
       setError(syncError instanceof Error ? syncError.message : 'Falha ao carregar periodos.')
     } finally {
@@ -212,11 +225,24 @@ export default function App() {
     }
   }
 
-  if (checkingSession) {
+  if (checkingSession || preparingDashboard) {
+    const loadingTitle = checkingSession
+      ? 'Verificando sessao...'
+      : 'Entrando no portal e carregando suas disciplinas...'
+    const loadingText = checkingSession
+      ? 'Estamos conferindo se ja existe uma sessao valida para abrir o dashboard.'
+      : 'Isso pode levar alguns segundos, principalmente no celular ou quando o backend acabou de acordar no Render.'
+
     return (
-      <main className="page-shell">
-        <section className="panel dashboard-panel">
-          <p className="empty-state">Verificando sessao...</p>
+      <main className="login-shell">
+        <section className="login-card loading-screen">
+          <div className="loading-state loading-state-full" aria-live="polite">
+            <div className="loading-spinner" />
+            <div>
+              <strong>{loadingTitle}</strong>
+              <p className="empty-state">{loadingText}</p>
+            </div>
+          </div>
         </section>
       </main>
     )
@@ -364,7 +390,12 @@ export default function App() {
             Escolha um periodo
             <select
               value={selectedPeriod?.key ?? ''}
-              onChange={(event) => setSelectedPeriodKey(event.target.value)}
+              onChange={(event) => {
+                const nextPeriodKey = event.target.value
+                setSelectedPeriodKey(nextPeriodKey)
+                setSearchTerm('')
+                setVisibleSubjects(getDefaultVisibleSubjects(periods, nextPeriodKey))
+              }}
               disabled={periods.length === 0}
             >
               {periods.length === 0 ? (
@@ -519,7 +550,7 @@ export default function App() {
           <p className="empty-state">Nenhum periodo carregado ainda.</p>
         ) : filteredSubjects.length === 0 ? (
           <p className="empty-state">
-            Nenhuma disciplina visivel ainda. Pesquise pelo nome ou selecione as materias que quer acompanhar.
+            Nenhuma disciplina encontrada com esse filtro. Ajuste a busca ou use a selecao de materias.
           </p>
         ) : (
           <div className="subject-list">
