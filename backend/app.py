@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import os
 from datetime import timedelta
+from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, session
+from flask import Flask, jsonify, request, send_from_directory, session
 from flask_cors import CORS
 from flask_session import Session
 from redis import Redis
@@ -14,6 +15,9 @@ from storage import SubjectStore
 
 
 load_dotenv()
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+FRONTEND_DIST_DIR = BASE_DIR / "frontend" / "dist"
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "dev-secret-change-me")
@@ -107,6 +111,34 @@ def delete_subject(subject_id: str):
 def sync_from_portal():
     result = sync_service.fetch_periods(session.get("portal_session", {}))
     return jsonify(result), result.get("status_code", 200)
+
+
+@app.get("/")
+def serve_frontend_index():
+    return _serve_frontend_path("index.html")
+
+
+@app.get("/<path:path>")
+def serve_frontend(path: str):
+    return _serve_frontend_path(path)
+
+
+def _serve_frontend_path(path: str):
+    if not FRONTEND_DIST_DIR.exists():
+        return (
+            jsonify(
+                {
+                    "message": "Frontend build nao encontrado. Rode `npm run build` em `frontend`.",
+                }
+            ),
+            503,
+        )
+
+    target = FRONTEND_DIST_DIR / path
+    if target.is_file():
+        return send_from_directory(FRONTEND_DIST_DIR, path)
+
+    return send_from_directory(FRONTEND_DIST_DIR, "index.html")
 
 
 if __name__ == "__main__":

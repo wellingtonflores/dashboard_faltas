@@ -37,7 +37,10 @@ const defaultLogin: LoginState = {
   rememberMe: true,
 }
 
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? ''
+const configuredApiBaseUrl =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? ''
+const browserHostname = typeof window !== 'undefined' ? window.location.hostname : ''
+const apiBaseUrl = browserHostname.endsWith('trycloudflare.com') ? '' : configuredApiBaseUrl
 
 function apiUrl(path: string) {
   return apiBaseUrl ? `${apiBaseUrl}${path}` : path
