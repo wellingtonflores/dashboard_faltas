@@ -94,6 +94,28 @@ def save_subject_annotation():
     return jsonify(annotation)
 
 
+@app.get("/api/settings")
+def get_user_settings():
+    portal_session = session.get("portal_session") or {}
+    matricula = str(portal_session.get("matricula", "")).strip()
+    if not matricula:
+        return jsonify({"message": "Faca login no portal antes de carregar configuracoes."}), 401
+
+    return jsonify(store.get_settings(matricula))
+
+
+@app.put("/api/settings")
+def update_user_settings():
+    portal_session = session.get("portal_session") or {}
+    matricula = str(portal_session.get("matricula", "")).strip()
+    if not matricula:
+        return jsonify({"message": "Faca login no portal antes de salvar configuracoes."}), 401
+
+    payload = request.get_json(silent=True) or {}
+    settings = store.update_settings(matricula, payload)
+    return jsonify(settings)
+
+
 @app.get("/api/subjects")
 def list_subjects():
     return jsonify({"subjects": store.list_subjects(), "summary": store.summary()})
@@ -125,10 +147,12 @@ def sync_from_portal():
     result = sync_service.fetch_periods(portal_session)
     if result.get("status") == "success":
         matricula = str(portal_session.get("matricula", "")).strip()
-        result["periods"] = store.merge_periods_with_annotations(
+        merged = store.merge_periods_with_annotations(
             result.get("periods", []),
             matricula,
         )
+        result["periods"] = merged["periods"]
+        result["settings"] = merged["settings"]
     return jsonify(result), result.get("status_code", 200)
 
 

@@ -92,6 +92,30 @@ button {
   padding: 36px 20px 56px;
 }
 
+.toast {
+  position: sticky;
+  top: 18px;
+  z-index: 20;
+  margin: 0 0 18px auto;
+  width: min(420px, 100%);
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 40px var(--shadow);
+  backdrop-filter: blur(12px);
+}
+
+.toast-success,
+.toast-info {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.toast-error {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
 .login-shell {
   min-height: 100vh;
   display: grid;
@@ -327,7 +351,7 @@ select:focus {
 
 .summary-inline {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -345,7 +369,7 @@ select:focus {
 }
 
 .summary-pill strong {
-  font-size: 1.8rem;
+  font-size: 1.4rem;
 }
 
 .subject-card {
@@ -353,6 +377,24 @@ select:focus {
   padding: 20px;
   position: relative;
   overflow: hidden;
+}
+
+.subject-card-healthy,
+.subject-card-neutral {
+  border-color: rgba(112, 177, 141, 0.25);
+}
+
+.subject-card-attention,
+.subject-card-limit {
+  border-color: rgba(224, 156, 66, 0.34);
+}
+
+.subject-card-exceeded {
+  border-color: rgba(225, 102, 127, 0.38);
+}
+
+.subject-card-pending {
+  border-style: dashed;
 }
 
 .subject-card::after {
@@ -369,6 +411,42 @@ select:focus {
   display: flex;
   justify-content: space-between;
   gap: 12px;
+}
+
+.subject-badge {
+  align-self: start;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.badge-healthy,
+.badge-neutral {
+  background: rgba(132, 217, 176, 0.18);
+  color: #307354;
+  border-color: rgba(132, 217, 176, 0.28);
+}
+
+.badge-attention,
+.badge-limit {
+  background: rgba(255, 204, 138, 0.24);
+  color: #99632d;
+  border-color: rgba(255, 204, 138, 0.4);
+}
+
+.badge-exceeded {
+  background: rgba(245, 139, 161, 0.24);
+  color: #a83e5d;
+  border-color: rgba(245, 139, 161, 0.42);
+}
+
+.badge-pending {
+  background: rgba(194, 178, 255, 0.18);
+  color: #684ea6;
+  border-color: rgba(194, 178, 255, 0.34);
 }
 
 .subject-card p {
@@ -438,7 +516,7 @@ select:focus {
 
 .annotation-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   padding: 0 16px 12px;
 }
@@ -447,6 +525,31 @@ select:focus {
   display: grid;
   gap: 12px;
   padding: 0 16px 16px;
+}
+
+.history-box {
+  display: grid;
+  gap: 10px;
+  padding: 0 16px 16px;
+}
+
+.history-list {
+  display: grid;
+  gap: 8px;
+}
+
+.history-item {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+}
+
+.history-item span,
+.history-item small {
+  color: var(--muted);
 }
 
 .notes-section-header {
