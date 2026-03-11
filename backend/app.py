@@ -179,9 +179,15 @@ def _serve_frontend_path(path: str):
 
     target = FRONTEND_DIST_DIR / path
     if target.is_file():
-        return send_from_directory(FRONTEND_DIST_DIR, path)
+        response = send_from_directory(FRONTEND_DIST_DIR, path)
+        response.cache_control.no_store = True
+        response.cache_control.max_age = 0
+        return response
 
-    return send_from_directory(FRONTEND_DIST_DIR, "index.html")
+    response = send_from_directory(FRONTEND_DIST_DIR, "index.html")
+    response.cache_control.no_store = True
+    response.cache_control.max_age = 0
+    return response
 
 
 if __name__ == "__main__":

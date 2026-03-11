@@ -325,7 +325,7 @@ export default function App() {
 
         const nextPeriods = hydratePeriods((data.periods ?? []) as Period[])
         if (!nextPeriods.length) {
-          throw new Error('Nao foi possivel identificar os periodos na pagina de notas.')
+          throw new Error('Nao foi possivel identificar os periodos na pagina do portal.')
         }
 
         const nextSelectedPeriodKey = nextPeriods.some((period) => period.key === selectedPeriodKey)

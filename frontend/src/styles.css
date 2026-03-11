@@ -521,12 +521,6 @@ select:focus {
   padding: 0 16px 12px;
 }
 
-.notes-section {
-  display: grid;
-  gap: 12px;
-  padding: 0 16px 16px;
-}
-
 .history-box {
   display: grid;
   gap: 10px;
@@ -550,29 +544,6 @@ select:focus {
 .history-item span,
 .history-item small {
   color: var(--muted);
-}
-
-.notes-section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: start;
-  gap: 12px;
-}
-
-.notes-list {
-  display: grid;
-  gap: 10px;
-}
-
-.note-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: end;
-}
-
-.note-remove-button {
-  align-self: end;
 }
 
 .subject-save-button {
@@ -694,12 +665,7 @@ select:focus {
   }
 
   .subject-stat-grid,
-  .annotation-grid,
-  .note-row {
+  .annotation-grid {
     grid-template-columns: 1fr;
-  }
-
-  .notes-section-header {
-    flex-direction: column;
   }
 }
