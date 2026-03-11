@@ -65,7 +65,12 @@ class PortalSyncService:
                 notes_url=notes_url,
                 fallback_matricula=fallback_matricula,
             )
-            internal_matricula = str(portal_context.get("matricula", "")).strip()
+            raw_internal_matricula = portal_context.get("matricula")
+            internal_matricula = (
+                str(raw_internal_matricula).strip()
+                if raw_internal_matricula not in (None, "")
+                else ""
+            )
             if not internal_matricula:
                 return {
                     "status": "error",
@@ -368,6 +373,12 @@ class PortalSyncService:
                 return match.group(1)
 
         soup = BeautifulSoup(html, "html.parser")
+        hidden_input = soup.find("input", id="matricula")
+        if hidden_input and hidden_input.get("value"):
+            candidate = str(hidden_input.get("value", "")).strip()
+            if candidate.isdigit():
+                return candidate
+
         for anchor in soup.find_all("a", href=True):
             href = str(anchor.get("href", ""))
             match = re.search(r"[?&]matricula=(\d+)", href, re.IGNORECASE)
