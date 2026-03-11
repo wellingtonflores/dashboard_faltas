@@ -487,6 +487,20 @@ select:focus {
   gap: 8px;
 }
 
+.student-info-grid {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+}
+
+.student-info-grid span {
+  color: var(--muted);
+}
+
 .subject-meta span {
   color: var(--muted);
 }

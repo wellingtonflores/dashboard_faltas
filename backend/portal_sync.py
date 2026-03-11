@@ -25,16 +25,16 @@ class PortalSyncService:
     def login(self, payload: dict[str, Any]) -> dict[str, Any]:
         username = str(payload.get("username", "")).strip()
         password = str(payload.get("password", "")).strip()
-        matricula = str(payload.get("matricula", "")).strip()
+        fallback_matricula = str(payload.get("matricula", "")).strip()
         login_url = str(payload.get("loginUrl") or DEFAULT_LOGIN_URL).strip()
         notes_url = str(payload.get("notesUrl") or DEFAULT_NOTES_URL).strip()
         verify_ssl = self._read_verify_ssl(payload)
 
-        if not username or not password or not matricula:
+        if not username or not password:
             return {
                 "status": "error",
                 "status_code": 400,
-                "message": "Informe usuario, senha e matricula para entrar.",
+                "message": "Informe usuario e senha para entrar.",
             }
 
         session = self._build_session(verify_ssl)
@@ -59,13 +59,31 @@ class PortalSyncService:
                     "message": "O portal voltou para a tela de login. Verifique usuario e senha.",
                 }
 
+            portal_context = self._discover_portal_context(
+                session=session,
+                login_url=login_url,
+                notes_url=notes_url,
+                fallback_matricula=fallback_matricula,
+            )
+            internal_matricula = str(portal_context.get("matricula", "")).strip()
+            if not internal_matricula:
+                return {
+                    "status": "error",
+                    "status_code": 502,
+                    "message": (
+                        "Nao consegui identificar a matricula interna do portal automaticamente. "
+                        "Se precisar, use o ajuste avancado."
+                    ),
+                }
+
             return {
                 "status": "success",
                 "status_code": 200,
                 "message": "Login realizado com sucesso.",
                 "portalSession": self._serialize_session(
                     session=session,
-                    matricula=matricula,
+                    matricula=internal_matricula,
+                    display_matricula=str(portal_context.get("displayMatricula", "")).strip(),
                     login_url=login_url,
                     notes_url=notes_url,
                     verify_ssl=verify_ssl,
@@ -127,6 +145,7 @@ class PortalSyncService:
                 notes_response.url,
                 session,
             )
+            student_info = self._extract_student_info(notes_response.text)
 
             if not periods:
                 print(f"Portal sync debug: {page_debug}")
@@ -142,6 +161,7 @@ class PortalSyncService:
                 "status_code": 200,
                 "message": "Periodos e disciplinas carregados com sucesso.",
                 "periods": periods,
+                "studentInfo": student_info,
             }
         except requests.exceptions.SSLError as error:
             return {
@@ -242,12 +262,14 @@ class PortalSyncService:
     def _serialize_session(
         session: requests.Session,
         matricula: str,
+        display_matricula: str,
         login_url: str,
         notes_url: str,
         verify_ssl: bool,
     ) -> dict[str, Any]:
         return {
             "matricula": matricula,
+            "displayMatricula": display_matricula,
             "loginUrl": login_url,
             "notesUrl": notes_url,
             "verifySsl": verify_ssl,
@@ -260,6 +282,56 @@ class PortalSyncService:
                 }
                 for cookie in session.cookies
             ],
+        }
+
+    def _discover_portal_context(
+        self,
+        session: requests.Session,
+        login_url: str,
+        notes_url: str,
+        fallback_matricula: str,
+    ) -> dict[str, str | None]:
+        index_url = urljoin(login_url, "/aluno/index.action")
+        candidates: list[tuple[str, str]] = []
+
+        try:
+            index_response = session.get(index_url, timeout=30)
+            index_response.raise_for_status()
+            candidates.append((index_response.url, index_response.text))
+        except requests.RequestException:
+            pass
+
+        try:
+            bare_notes = session.get(
+                notes_url,
+                headers={"Referer": index_url},
+                allow_redirects=True,
+                timeout=30,
+            )
+            bare_notes.raise_for_status()
+            candidates.append((bare_notes.url, bare_notes.text))
+        except requests.RequestException:
+            pass
+
+        internal_matricula = fallback_matricula or None
+        student_info: dict[str, str | None] = {}
+
+        for candidate_url, candidate_html in candidates:
+            if internal_matricula is None:
+                internal_matricula = self._extract_internal_matricula(candidate_url, candidate_html)
+
+            if not student_info:
+                student_info = self._extract_student_info(candidate_html)
+
+            if internal_matricula and student_info:
+                break
+
+        return {
+            "matricula": internal_matricula,
+            "displayMatricula": student_info.get("displayMatricula"),
+            "course": student_info.get("course"),
+            "enrollmentPeriod": student_info.get("enrollmentPeriod"),
+            "currentPeriod": student_info.get("currentPeriod"),
         }
 
     @staticmethod
@@ -287,6 +359,56 @@ class PortalSyncService:
 
         action = str(form.get("action", "")).lower()
         return "j_security_check" in action
+
+    @staticmethod
+    def _extract_internal_matricula(url: str, html: str) -> str | None:
+        for source in (url, html):
+            match = re.search(r"nota\.action\?matricula=(\d+)", source, re.IGNORECASE)
+            if match:
+                return match.group(1)
+
+        soup = BeautifulSoup(html, "html.parser")
+        for anchor in soup.find_all("a", href=True):
+            href = str(anchor.get("href", ""))
+            match = re.search(r"[?&]matricula=(\d+)", href, re.IGNORECASE)
+            if match:
+                return match.group(1)
+
+        return None
+
+    @staticmethod
+    def _extract_student_info(html: str) -> dict[str, str | None]:
+        soup = BeautifulSoup(html, "html.parser")
+        mapping = {
+            "matricula": "displayMatricula",
+            "curso": "course",
+            "periodo de matricula": "enrollmentPeriod",
+            "periodo atual": "currentPeriod",
+        }
+        result: dict[str, str | None] = {
+            "displayMatricula": None,
+            "course": None,
+            "enrollmentPeriod": None,
+            "currentPeriod": None,
+        }
+
+        for label_tag in soup.find_all("span", class_="label"):
+            label = PortalSyncService._normalize_label(label_tag.get_text(" ", strip=True)).rstrip(":")
+            key = mapping.get(label)
+            if not key:
+                continue
+
+            parent = label_tag.parent
+            if parent is None:
+                continue
+
+            text = parent.get_text(" ", strip=True).replace("\xa0", " ")
+            label_text = label_tag.get_text(" ", strip=True).replace("\xa0", " ")
+            value = re.sub(rf"^{re.escape(label_text)}\s*:?\s*", "", text, count=1).strip()
+            if value:
+                result[key] = value
+
+        return result
 
     @staticmethod
     def _describe_page(response: requests.Response) -> dict[str, Any]:

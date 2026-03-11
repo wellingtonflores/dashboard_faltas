@@ -59,7 +59,7 @@ def session_status():
     return jsonify(
         {
             "authenticated": bool(portal_session),
-            "matricula": portal_session.get("matricula") if portal_session else None,
+            "matricula": portal_session.get("displayMatricula") if portal_session else None,
         }
     )
 

@@ -49,6 +49,13 @@ type SessionStatus = {
   matricula: string | null
 }
 
+type StudentInfo = {
+  displayMatricula?: string | null
+  course?: string | null
+  enrollmentPeriod?: string | null
+  currentPeriod?: string | null
+}
+
 type Notice = {
   type: 'success' | 'error' | 'info'
   text: string
@@ -191,6 +198,7 @@ export default function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [authenticated, setAuthenticated] = useState(false)
   const [periods, setPeriods] = useState<Period[]>([])
+  const [studentInfo, setStudentInfo] = useState<StudentInfo | null>(null)
   const [selectedPeriodKey, setSelectedPeriodKey] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [visibleSubjects, setVisibleSubjects] = useState<string[]>([])
@@ -328,6 +336,8 @@ export default function App() {
           throw new Error('Nao foi possivel identificar os periodos na pagina do portal.')
         }
 
+        setStudentInfo((data.studentInfo ?? null) as StudentInfo | null)
+
         const nextSelectedPeriodKey = nextPeriods.some((period) => period.key === selectedPeriodKey)
           ? selectedPeriodKey
           : (nextPeriods[0]?.key ?? '')
@@ -358,9 +368,6 @@ export default function App() {
       setCheckingSession(true)
       const response = await fetch(apiUrl('/api/session'), { credentials: 'include' })
       const data = (await response.json()) as SessionStatus
-      if (data.matricula) {
-        setLoginForm((current) => ({ ...current, matricula: data.matricula ?? '' }))
-      }
       if (data.authenticated) {
         setPreparingDashboard(true)
         await syncPortal()
@@ -422,6 +429,7 @@ export default function App() {
     } finally {
       setAuthenticated(false)
       setPeriods([])
+      setStudentInfo(null)
       setSelectedPeriodKey('')
       setSearchTerm('')
       setVisibleSubjects([])
@@ -527,6 +535,9 @@ export default function App() {
             <p className="hint helper-text">
               No iPhone, abra no Safari e toque em Compartilhar {'>'} Adicionar a Tela de Inicio.
             </p>
+            <p className="hint helper-text">
+              A matricula interna do portal sera detectada automaticamente depois do login.
+            </p>
           </div>
 
           <div className="login-form">
@@ -561,38 +572,6 @@ export default function App() {
               />
             </label>
 
-            <label>
-              Matricula
-              <input
-                value={loginForm.matricula}
-                onChange={(event) =>
-                  setLoginForm({ ...loginForm, matricula: event.target.value })
-                }
-                placeholder="Ex.: 527868"
-              />
-            </label>
-
-            <label>
-              URL de login
-              <input
-                value={loginForm.loginUrl}
-                onChange={(event) =>
-                  setLoginForm({ ...loginForm, loginUrl: event.target.value })
-                }
-              />
-            </label>
-
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={loginForm.verifySsl}
-                onChange={(event) =>
-                  setLoginForm({ ...loginForm, verifySsl: event.target.checked })
-                }
-              />
-              Verificar certificado SSL
-            </label>
-
             <label className="checkbox-row">
               <input
                 type="checkbox"
@@ -603,6 +582,44 @@ export default function App() {
               />
               Manter conectado
             </label>
+
+            <details className="annotation-box">
+              <summary className="annotation-summary">Ajustes avancados</summary>
+
+              <div className="annotation-grid">
+                <label>
+                  Matricula interna do portal
+                  <input
+                    value={loginForm.matricula}
+                    onChange={(event) =>
+                      setLoginForm({ ...loginForm, matricula: event.target.value })
+                    }
+                    placeholder="Opcional"
+                  />
+                </label>
+
+                <label>
+                  URL de login
+                  <input
+                    value={loginForm.loginUrl}
+                    onChange={(event) =>
+                      setLoginForm({ ...loginForm, loginUrl: event.target.value })
+                    }
+                  />
+                </label>
+
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={loginForm.verifySsl}
+                    onChange={(event) =>
+                      setLoginForm({ ...loginForm, verifySsl: event.target.checked })
+                    }
+                  />
+                  Verificar certificado SSL
+                </label>
+              </div>
+            </details>
 
             {error ? <p className="feedback error">{error}</p> : null}
 
@@ -688,6 +705,30 @@ export default function App() {
               ? `${selectedPeriod.subjects.length} disciplina(s) neste periodo. Agora voce pode acompanhar faltas, carga horaria e limite manualmente.`
               : 'Atualize o portal para carregar os periodos.'}
           </p>
+          {studentInfo ? (
+            <div className="student-info-grid">
+              {studentInfo.displayMatricula ? (
+                <span>
+                  <strong>Matricula:</strong> {studentInfo.displayMatricula}
+                </span>
+              ) : null}
+              {studentInfo.course ? (
+                <span>
+                  <strong>Curso:</strong> {studentInfo.course}
+                </span>
+              ) : null}
+              {studentInfo.enrollmentPeriod ? (
+                <span>
+                  <strong>Periodo de matricula:</strong> {studentInfo.enrollmentPeriod}
+                </span>
+              ) : null}
+              {studentInfo.currentPeriod ? (
+                <span>
+                  <strong>Periodo atual:</strong> {studentInfo.currentPeriod}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </article>
 
         <article className="panel dashboard-panel">
