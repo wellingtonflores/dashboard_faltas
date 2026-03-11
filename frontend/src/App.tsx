@@ -524,6 +524,9 @@ export default function App() {
               O login acontece no backend e a sessao do portal fica guardada no
               servidor. O navegador nao precisa armazenar a senha.
             </p>
+            <p className="hint helper-text">
+              No iPhone, abra no Safari e toque em Compartilhar {'>'} Adicionar a Tela de Inicio.
+            </p>
           </div>
 
           <div className="login-form">
