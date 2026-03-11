@@ -511,14 +511,22 @@ select:focus {
   transform: none;
 }
 
-.stepper-value {
-  display: grid;
-  place-items: center;
+.stepper-input {
+  width: 100%;
   min-height: 42px;
   border-radius: 14px;
   background: var(--surface);
   border: 1px solid var(--border);
   font-size: 1.2rem;
+  text-align: center;
+  font-weight: 700;
+  padding: 0 10px;
+}
+
+.stepper-input::-webkit-outer-spin-button,
+.stepper-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .stepper-hint {

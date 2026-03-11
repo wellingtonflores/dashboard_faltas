@@ -83,6 +83,14 @@ function wait(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
 }
 
+function formatPortoAlegreDate(value: string) {
+  return new Intl.DateTimeFormat('pt-BR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+    timeZone: 'America/Sao_Paulo',
+  }).format(new Date(value))
+}
+
 function extractInteger(value: string | number | null | undefined) {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value
@@ -207,6 +215,7 @@ export default function App() {
   const [loggingIn, setLoggingIn] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [savingSubjects, setSavingSubjects] = useState<string[]>([])
+  const [absenceDrafts, setAbsenceDrafts] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
   const isLoadingPortal = loggingIn || syncing || preparingDashboard
@@ -433,6 +442,7 @@ export default function App() {
       setSelectedPeriodKey('')
       setSearchTerm('')
       setVisibleSubjects([])
+      setAbsenceDrafts({})
       setLoginForm((current) => ({ ...current, password: '' }))
     }
   }
@@ -498,6 +508,22 @@ export default function App() {
     }
   }
 
+  function commitTrackedAbsences(periodKey: string, subject: Subject, rawValue: string) {
+    const nextManualAbsences = rawValue.trim() === '' ? 0 : Math.max(0, Number(rawValue))
+    const nextSubject = deriveSubject({
+      ...subject,
+      manualAbsences: Number.isFinite(nextManualAbsences) ? nextManualAbsences : 0,
+    })
+
+    updateSubjectState(periodKey, subject.name, () => nextSubject)
+    setAbsenceDrafts((current) => {
+      const next = { ...current }
+      delete next[subjectStateKey(periodKey, subject.name)]
+      return next
+    })
+    void saveAnnotation(periodKey, subject.name, nextSubject)
+  }
+
   function adjustTrackedAbsences(periodKey: string, subject: Subject, delta: number) {
     const currentValue = subject.manualAbsences ?? subject.trackedAbsences ?? 0
     const nextManualAbsences = Math.max(0, currentValue + delta)
@@ -507,6 +533,10 @@ export default function App() {
     })
 
     updateSubjectState(periodKey, subject.name, () => nextSubject)
+    setAbsenceDrafts((current) => ({
+      ...current,
+      [subjectStateKey(periodKey, subject.name)]: String(nextManualAbsences),
+    }))
     void saveAnnotation(periodKey, subject.name, nextSubject)
   }
 
@@ -894,6 +924,8 @@ export default function App() {
             {filteredSubjects.map((subject) => {
               const saveKey = subjectStateKey(selectedPeriod.key, subject.name)
               const isSaving = savingSubjects.includes(saveKey)
+              const trackedAbsenceValue = subject.manualAbsences ?? subject.trackedAbsences ?? 0
+              const absenceDraft = absenceDrafts[saveKey] ?? String(trackedAbsenceValue)
 
               return (
                 <article
@@ -919,12 +951,33 @@ export default function App() {
                             className="stepper-button"
                             type="button"
                             onClick={() => adjustTrackedAbsences(selectedPeriod.key, subject, -1)}
-                            disabled={isSaving || (subject.manualAbsences ?? subject.trackedAbsences ?? 0) <= 0}
+                            disabled={isSaving || trackedAbsenceValue <= 0}
                             aria-label={`Diminuir faltas de ${subject.displayName ?? subject.name}`}
                           >
                             -
                           </button>
-                          <strong className="stepper-value">{subject.trackedAbsences ?? 0}</strong>
+                          <input
+                            className="stepper-input"
+                            type="number"
+                            min="0"
+                            inputMode="numeric"
+                            value={absenceDraft}
+                            aria-label={`Editar faltas de ${subject.displayName ?? subject.name}`}
+                            onChange={(event) => {
+                              setAbsenceDrafts((current) => ({
+                                ...current,
+                                [saveKey]: event.target.value,
+                              }))
+                            }}
+                            onBlur={(event) =>
+                              commitTrackedAbsences(selectedPeriod.key, subject, event.target.value)
+                            }
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.currentTarget.blur()
+                              }
+                            }}
+                          />
                           <button
                             className="stepper-button"
                             type="button"
@@ -1033,7 +1086,7 @@ export default function App() {
                           <div className="history-list">
                             {subject.history.map((entry) => (
                               <div className="history-item" key={entry.id}>
-                                <span>{new Date(entry.createdAt).toLocaleString('pt-BR')}</span>
+                                <span>{formatPortoAlegreDate(entry.createdAt)}</span>
                                 <strong>
                                   {entry.manualAbsences != null
                                     ? `${entry.manualAbsences} falta(s)`
