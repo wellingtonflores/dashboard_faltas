@@ -8,6 +8,8 @@ services:
     envVars:
       - key: FLASK_SECRET_KEY
         generateValue: true
+      - key: PYTHON_VERSION
+        value: 3.13.5
       - key: FRONTEND_URL
         sync: false
       - key: SESSION_COOKIE_SECURE
