@@ -472,6 +472,11 @@ select:focus {
   border: 1px solid var(--border);
 }
 
+.subject-stat-absence {
+  display: grid;
+  gap: 10px;
+}
+
 .subject-stat span {
   display: block;
   color: var(--muted);
@@ -480,6 +485,44 @@ select:focus {
 
 .subject-stat strong {
   font-size: 1.05rem;
+}
+
+.absence-stepper {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  align-items: center;
+  gap: 10px;
+}
+
+.stepper-button {
+  height: 42px;
+  width: 42px;
+  border: none;
+  border-radius: 14px;
+  background: var(--ghost);
+  color: var(--ghost-text);
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.stepper-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.stepper-value {
+  display: grid;
+  place-items: center;
+  min-height: 42px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 1.2rem;
+}
+
+.stepper-hint {
+  color: var(--muted);
 }
 
 .subject-meta {

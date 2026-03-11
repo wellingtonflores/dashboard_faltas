@@ -453,8 +453,8 @@ export default function App() {
     }
   }
 
-  async function saveAnnotation(periodKey: string, subjectName: string) {
-    const subject = getSubject(periodKey, subjectName)
+  async function saveAnnotation(periodKey: string, subjectName: string, subjectOverride?: Subject) {
+    const subject = subjectOverride ?? getSubject(periodKey, subjectName)
     if (!subject) {
       return
     }
@@ -496,6 +496,18 @@ export default function App() {
     } finally {
       setSavingSubjects((current) => current.filter((item) => item !== saveKey))
     }
+  }
+
+  function adjustTrackedAbsences(periodKey: string, subject: Subject, delta: number) {
+    const currentValue = subject.manualAbsences ?? subject.trackedAbsences ?? 0
+    const nextManualAbsences = Math.max(0, currentValue + delta)
+    const nextSubject = deriveSubject({
+      ...subject,
+      manualAbsences: nextManualAbsences,
+    })
+
+    updateSubjectState(periodKey, subject.name, () => nextSubject)
+    void saveAnnotation(periodKey, subject.name, nextSubject)
   }
 
   if (checkingSession || preparingDashboard) {
@@ -900,9 +912,32 @@ export default function App() {
 
                   <div className="subject-details">
                     <div className="subject-stat-grid">
-                      <div className="subject-stat">
+                      <div className="subject-stat subject-stat-absence">
                         <span>Faltas acompanhadas</span>
-                        <strong>{subject.trackedAbsences ?? 'Sem dado'}</strong>
+                        <div className="absence-stepper" role="group" aria-label={`Ajustar faltas de ${subject.displayName ?? subject.name}`}>
+                          <button
+                            className="stepper-button"
+                            type="button"
+                            onClick={() => adjustTrackedAbsences(selectedPeriod.key, subject, -1)}
+                            disabled={isSaving || (subject.manualAbsences ?? subject.trackedAbsences ?? 0) <= 0}
+                            aria-label={`Diminuir faltas de ${subject.displayName ?? subject.name}`}
+                          >
+                            -
+                          </button>
+                          <strong className="stepper-value">{subject.trackedAbsences ?? 0}</strong>
+                          <button
+                            className="stepper-button"
+                            type="button"
+                            onClick={() => adjustTrackedAbsences(selectedPeriod.key, subject, 1)}
+                            disabled={isSaving}
+                            aria-label={`Aumentar faltas de ${subject.displayName ?? subject.name}`}
+                          >
+                            +
+                          </button>
+                        </div>
+                        <small className="stepper-hint">
+                          {isSaving ? 'Salvando...' : 'Toque em - ou + para ajustar'}
+                        </small>
                       </div>
                       <div className="subject-stat">
                         <span>Limite atual</span>
@@ -942,30 +977,9 @@ export default function App() {
                     </div>
 
                     <details className="annotation-box">
-                      <summary className="annotation-summary">Atualizar faltas e limite</summary>
+                      <summary className="annotation-summary">Configurar carga horaria e limite</summary>
 
                       <div className="annotation-grid">
-                        <label>
-                          Faltas anotadas
-                          <input
-                            type="number"
-                            min="0"
-                            value={subject.manualAbsences ?? ''}
-                            placeholder={
-                              subject.portalAbsences != null
-                                ? `Portal: ${subject.portalAbsences}`
-                                : 'Ex.: 2'
-                            }
-                            onChange={(event) => {
-                              const value = event.target.value
-                              updateSubjectState(selectedPeriod.key, subject.name, (current) => ({
-                                ...current,
-                                manualAbsences: value === '' ? null : Number(value),
-                              }))
-                            }}
-                          />
-                        </label>
-
                         <label>
                           Carga horaria
                           <input
@@ -1045,7 +1059,7 @@ export default function App() {
                         onClick={() => void saveAnnotation(selectedPeriod.key, subject.name)}
                         disabled={isSaving}
                       >
-                        {isSaving ? 'Salvando...' : 'Salvar anotacoes'}
+                        {isSaving ? 'Salvando...' : 'Salvar configuracao'}
                       </button>
                     </details>
                   </div>
