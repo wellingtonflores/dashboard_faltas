@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 import math
+import re
 import sqlite3
+import unicodedata
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,6 +14,15 @@ from typing import Any
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "faltas.db"
+DEFAULT_ABSENCE_PERCENTAGE = 0.25
+CLASS_PERIOD_MINUTES = 50
+DEFAULT_SUBJECT_HOURS = {
+    "praticas em audiologia basica ii": 15,
+    "linguagem do adulto e idoso": 60,
+    "leitura e escrita": 60,
+    "informatica em saude": 30,
+    "audiologia ii": 45,
+}
 
 
 class SubjectStore:
@@ -36,6 +48,20 @@ class SubjectStore:
                     max_absence_percentage REAL NOT NULL DEFAULT 25,
                     notes TEXT DEFAULT '',
                     updated_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS subject_annotations (
+                    matricula TEXT NOT NULL,
+                    period_key TEXT NOT NULL,
+                    subject_name TEXT NOT NULL,
+                    manual_absences INTEGER,
+                    max_absences INTEGER,
+                    grade_entries TEXT NOT NULL DEFAULT '[]',
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (matricula, period_key, subject_name)
                 )
                 """
             )
@@ -131,6 +157,197 @@ class SubjectStore:
             "riskySubjects": risky_subjects,
         }
 
+    def upsert_annotation(self, matricula: str, payload: dict[str, Any]) -> dict[str, Any]:
+        annotation = self._normalize_annotation(matricula, payload)
+
+        with self._connect() as connection:
+            if self._annotation_is_empty(annotation):
+                connection.execute(
+                    """
+                    DELETE FROM subject_annotations
+                    WHERE matricula = ? AND period_key = ? AND subject_name = ?
+                    """,
+                    (
+                        annotation["matricula"],
+                        annotation["periodKey"],
+                        annotation["subjectName"],
+                    ),
+                )
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO subject_annotations (
+                        matricula, period_key, subject_name, manual_absences,
+                        max_absences, grade_entries, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(matricula, period_key, subject_name)
+                    DO UPDATE SET
+                        manual_absences = excluded.manual_absences,
+                        max_absences = excluded.max_absences,
+                        grade_entries = excluded.grade_entries,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        annotation["matricula"],
+                        annotation["periodKey"],
+                        annotation["subjectName"],
+                        annotation["manualAbsences"],
+                        annotation["maxAbsences"],
+                        json.dumps(annotation["gradeEntries"]),
+                        annotation["updatedAt"],
+                    ),
+                )
+
+        return annotation
+
+    def merge_periods_with_annotations(
+        self,
+        periods: list[dict[str, Any]],
+        matricula: str,
+    ) -> list[dict[str, Any]]:
+        annotations = self._list_annotations(matricula)
+        merged_periods: list[dict[str, Any]] = []
+
+        for period in periods:
+            subjects: list[dict[str, Any]] = []
+            for subject in period.get("subjects", []):
+                annotation_key = self._annotation_key(period["key"], subject["name"])
+                annotation = annotations.get(annotation_key)
+                default_config = self._default_subject_config(subject["name"])
+                portal_absences = self._extract_int(subject.get("absences"))
+                manual_absences = (
+                    annotation["manualAbsences"] if annotation is not None else None
+                )
+                tracked_absences = (
+                    manual_absences if manual_absences is not None else portal_absences
+                )
+                grade_entries = annotation["gradeEntries"] if annotation is not None else []
+                grade_average = self._calculate_grade_average(grade_entries)
+                manual_max_absences = (
+                    annotation["maxAbsences"] if annotation is not None else None
+                )
+                inferred_max_absences = (
+                    default_config["maxAbsences"] if default_config is not None else None
+                )
+                effective_max_absences = (
+                    manual_max_absences
+                    if manual_max_absences is not None
+                    else inferred_max_absences
+                )
+                remaining_absences = (
+                    effective_max_absences - tracked_absences
+                    if effective_max_absences is not None and tracked_absences is not None
+                    else None
+                )
+
+                subjects.append(
+                    {
+                        **subject,
+                        "portalAbsences": portal_absences,
+                        "manualAbsences": manual_absences,
+                        "trackedAbsences": tracked_absences,
+                        "gradeEntries": grade_entries,
+                        "gradeAverage": grade_average,
+                        "configuredHours": (
+                            default_config["hours"] if default_config is not None else None
+                        ),
+                        "configuredPeriods": (
+                            default_config["periods"] if default_config is not None else None
+                        ),
+                        "maxAbsences": effective_max_absences,
+                        "manualMaxAbsences": manual_max_absences,
+                        "remainingAbsences": remaining_absences,
+                        "maxAbsencesSource": (
+                            "manual"
+                            if manual_max_absences is not None
+                            else "default"
+                            if inferred_max_absences is not None
+                            else "pending"
+                        ),
+                    }
+                )
+
+            merged_periods.append({**period, "subjects": subjects})
+
+        return merged_periods
+
+    def _list_annotations(self, matricula: str) -> dict[str, dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT matricula, period_key, subject_name, manual_absences,
+                       max_absences, grade_entries, updated_at
+                FROM subject_annotations
+                WHERE matricula = ?
+                """,
+                (matricula,),
+            ).fetchall()
+
+        return {
+            self._annotation_key(row["period_key"], row["subject_name"]): self._serialize_annotation(
+                row
+            )
+            for row in rows
+        }
+
+    def _normalize_annotation(self, matricula: str, payload: dict[str, Any]) -> dict[str, Any]:
+        period_key = str(payload.get("periodKey", "")).strip()
+        subject_name = str(payload.get("subjectName", "")).strip()
+
+        if not matricula:
+            raise ValueError("Matricula da sessao nao encontrada.")
+        if not period_key:
+            raise ValueError("Periodo da disciplina e obrigatorio.")
+        if not subject_name:
+            raise ValueError("Nome da disciplina e obrigatorio.")
+
+        manual_absences = self._to_optional_int(payload.get("manualAbsences"))
+        max_absences = self._to_optional_int(payload.get("maxAbsences"))
+        if manual_absences is not None and manual_absences < 0:
+            raise ValueError("Faltas anotadas nao podem ser negativas.")
+        if max_absences is not None and max_absences < 0:
+            raise ValueError("Limite de faltas nao pode ser negativo.")
+
+        grade_entries = self._normalize_grade_entries(payload.get("gradeEntries", []))
+        updated_at = datetime.now(UTC).isoformat()
+
+        return {
+            "matricula": matricula,
+            "periodKey": period_key,
+            "subjectName": subject_name,
+            "manualAbsences": manual_absences,
+            "maxAbsences": max_absences,
+            "gradeEntries": grade_entries,
+            "gradeAverage": self._calculate_grade_average(grade_entries),
+            "updatedAt": updated_at,
+        }
+
+    def _serialize_annotation(self, row: sqlite3.Row) -> dict[str, Any]:
+        grade_entries = self._normalize_grade_entries(row["grade_entries"])
+        return {
+            "matricula": row["matricula"],
+            "periodKey": row["period_key"],
+            "subjectName": row["subject_name"],
+            "manualAbsences": row["manual_absences"],
+            "maxAbsences": row["max_absences"],
+            "gradeEntries": grade_entries,
+            "gradeAverage": self._calculate_grade_average(grade_entries),
+            "updatedAt": row["updated_at"],
+        }
+
+    def _default_subject_config(self, subject_name: str) -> dict[str, int] | None:
+        normalized_name = self._normalize_label(subject_name)
+        for known_name, hours in DEFAULT_SUBJECT_HOURS.items():
+            if known_name in normalized_name:
+                class_periods = math.floor((hours * 60) / CLASS_PERIOD_MINUTES)
+                max_absences = math.floor(class_periods * DEFAULT_ABSENCE_PERCENTAGE)
+                return {
+                    "hours": hours,
+                    "periods": class_periods,
+                    "maxAbsences": max_absences,
+                }
+        return None
+
     def _get_subject(self, subject_id: str) -> sqlite3.Row:
         with self._connect() as connection:
             row = connection.execute(
@@ -205,12 +422,89 @@ class SubjectStore:
         }
 
     @staticmethod
+    def _annotation_key(period_key: str, subject_name: str) -> str:
+        return f"{period_key}::{subject_name}"
+
+    @staticmethod
+    def _annotation_is_empty(annotation: dict[str, Any]) -> bool:
+        return (
+            annotation["manualAbsences"] is None
+            and annotation["maxAbsences"] is None
+            and not annotation["gradeEntries"]
+        )
+
+    @staticmethod
+    def _calculate_grade_average(grade_entries: list[str]) -> float | None:
+        values: list[float] = []
+        for entry in grade_entries:
+            cleaned = entry.replace(",", ".").strip()
+            if not cleaned:
+                continue
+            try:
+                values.append(float(cleaned))
+            except ValueError:
+                continue
+
+        if not values:
+            return None
+
+        return round(sum(values) / len(values), 2)
+
+    @staticmethod
+    def _normalize_grade_entries(value: Any) -> list[str]:
+        raw_entries = value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return []
+            try:
+                raw_entries = json.loads(stripped)
+            except json.JSONDecodeError:
+                raw_entries = [value]
+
+        if not isinstance(raw_entries, list):
+            raise ValueError("As notas devem ser enviadas como lista.")
+
+        normalized_entries: list[str] = []
+        for entry in raw_entries:
+            cleaned = str(entry).strip()
+            if cleaned:
+                normalized_entries.append(cleaned)
+
+        return normalized_entries
+
+    @staticmethod
+    def _extract_int(value: Any) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+
+        match = re.search(r"-?\d+", str(value))
+        if not match:
+            return None
+
+        return int(match.group())
+
+    @staticmethod
+    def _normalize_label(value: str) -> str:
+        normalized = unicodedata.normalize("NFKD", value)
+        ascii_only = "".join(char for char in normalized if not unicodedata.combining(char))
+        return re.sub(r"\s+", " ", ascii_only).strip().lower()
+
+    @staticmethod
     def _to_int(value: Any) -> int:
         return int(value)
 
     @staticmethod
     def _to_float(value: Any) -> float:
         return float(value)
+
+    @staticmethod
+    def _to_optional_int(value: Any) -> int | None:
+        if value in (None, ""):
+            return None
+        return int(value)
 
     @staticmethod
     def _status_for(absences: int, allowed_absences: int, remaining_absences: int) -> str:

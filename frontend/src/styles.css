@@ -381,6 +381,29 @@ select:focus {
   margin-top: 16px;
 }
 
+.subject-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.subject-stat {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+}
+
+.subject-stat span {
+  display: block;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.subject-stat strong {
+  font-size: 1.05rem;
+}
+
 .subject-meta {
   display: grid;
   gap: 8px;
@@ -388,6 +411,69 @@ select:focus {
 
 .subject-meta span {
   color: var(--muted);
+}
+
+.helper-text {
+  margin: 0;
+}
+
+.annotation-box {
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  overflow: hidden;
+}
+
+.annotation-summary {
+  cursor: pointer;
+  padding: 14px 16px;
+  color: var(--ghost-text);
+  font-weight: 600;
+  list-style: none;
+}
+
+.annotation-summary::-webkit-details-marker {
+  display: none;
+}
+
+.annotation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0 16px 12px;
+}
+
+.notes-section {
+  display: grid;
+  gap: 12px;
+  padding: 0 16px 16px;
+}
+
+.notes-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+}
+
+.notes-list {
+  display: grid;
+  gap: 10px;
+}
+
+.note-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.note-remove-button {
+  align-self: end;
+}
+
+.subject-save-button {
+  margin: 0 16px 16px;
 }
 
 .filters-toolbar {
@@ -434,6 +520,10 @@ select:focus {
   gap: 8px;
   max-height: 220px;
   overflow: auto;
+  padding: 0 16px 16px;
+}
+
+.selector-empty {
   padding: 0 16px 16px;
 }
 
@@ -498,5 +588,15 @@ select:focus {
     width: 100%;
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .subject-stat-grid,
+  .annotation-grid,
+  .note-row {
+    grid-template-columns: 1fr;
+  }
+
+  .notes-section-header {
+    flex-direction: column;
   }
 }

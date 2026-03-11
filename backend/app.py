@@ -82,6 +82,18 @@ def portal_logout():
     return jsonify({"status": "success", "message": "Sessao encerrada."})
 
 
+@app.put("/api/annotations")
+def save_subject_annotation():
+    portal_session = session.get("portal_session") or {}
+    matricula = str(portal_session.get("matricula", "")).strip()
+    if not matricula:
+        return jsonify({"message": "Faca login no portal antes de salvar anotacoes."}), 401
+
+    payload = request.get_json(silent=True) or {}
+    annotation = store.upsert_annotation(matricula, payload)
+    return jsonify(annotation)
+
+
 @app.get("/api/subjects")
 def list_subjects():
     return jsonify({"subjects": store.list_subjects(), "summary": store.summary()})
@@ -109,7 +121,14 @@ def delete_subject(subject_id: str):
 
 @app.post("/api/sync")
 def sync_from_portal():
-    result = sync_service.fetch_periods(session.get("portal_session", {}))
+    portal_session = session.get("portal_session", {})
+    result = sync_service.fetch_periods(portal_session)
+    if result.get("status") == "success":
+        matricula = str(portal_session.get("matricula", "")).strip()
+        result["periods"] = store.merge_periods_with_annotations(
+            result.get("periods", []),
+            matricula,
+        )
     return jsonify(result), result.get("status_code", 200)
 
 

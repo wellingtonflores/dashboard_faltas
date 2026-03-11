@@ -21,6 +21,17 @@ type Subject = {
   name: string
   noteUrl: string | null
   absences: string | null
+  portalAbsences?: number | null
+  manualAbsences?: number | null
+  trackedAbsences?: number | null
+  gradeEntries?: string[]
+  gradeAverage?: number | null
+  configuredHours?: number | null
+  configuredPeriods?: number | null
+  maxAbsences?: number | null
+  manualMaxAbsences?: number | null
+  remainingAbsences?: number | null
+  maxAbsencesSource?: 'manual' | 'default' | 'pending'
 }
 
 type SessionStatus = {
@@ -50,6 +61,88 @@ function wait(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
 }
 
+function extractInteger(value: string | number | null | undefined) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+
+  if (value == null) {
+    return null
+  }
+
+  const match = String(value).match(/-?\d+/)
+  return match ? Number(match[0]) : null
+}
+
+function calculateAverage(entries: string[]) {
+  const values = entries
+    .map((entry) => Number(entry.replace(',', '.')))
+    .filter((value) => Number.isFinite(value))
+
+  if (!values.length) {
+    return null
+  }
+
+  return Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2))
+}
+
+function deriveSubject(subject: Subject): Subject {
+  const portalAbsences = subject.portalAbsences ?? extractInteger(subject.absences)
+  const manualAbsences = subject.manualAbsences ?? null
+  const trackedAbsences = manualAbsences ?? portalAbsences ?? null
+  const gradeEntries = Array.isArray(subject.gradeEntries) ? subject.gradeEntries : []
+  const configuredHours = subject.configuredHours ?? null
+  const configuredPeriods =
+    subject.configuredPeriods ??
+    (configuredHours != null ? Math.floor((configuredHours * 60) / 50) : null)
+  const inferredMaxAbsences =
+    configuredPeriods != null ? Math.floor(configuredPeriods * 0.25) : null
+  const manualMaxAbsences =
+    subject.manualMaxAbsences ??
+    (subject.maxAbsencesSource === 'manual' ? subject.maxAbsences ?? null : null)
+  const maxAbsences = manualMaxAbsences ?? inferredMaxAbsences
+  const remainingAbsences =
+    maxAbsences != null && trackedAbsences != null ? maxAbsences - trackedAbsences : null
+
+  return {
+    ...subject,
+    portalAbsences,
+    manualAbsences,
+    trackedAbsences,
+    gradeEntries,
+    gradeAverage: calculateAverage(gradeEntries),
+    configuredHours,
+    configuredPeriods,
+    maxAbsences,
+    manualMaxAbsences,
+    remainingAbsences,
+    maxAbsencesSource:
+      manualMaxAbsences != null ? 'manual' : inferredMaxAbsences != null ? 'default' : 'pending',
+  }
+}
+
+function hydratePeriods(nextPeriods: Period[]) {
+  return nextPeriods.map((period) => ({
+    ...period,
+    subjects: period.subjects.map(deriveSubject),
+  }))
+}
+
+function formatDecimal(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) {
+    return 'Ainda nao calculada'
+  }
+
+  return value.toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+}
+
+function subjectStateKey(periodKey: string, subjectName: string) {
+  return `${periodKey}::${subjectName}`
+}
+
 export default function App() {
   const [loginForm, setLoginForm] = useState<LoginState>(defaultLogin)
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
@@ -62,6 +155,7 @@ export default function App() {
   const [preparingDashboard, setPreparingDashboard] = useState(false)
   const [loggingIn, setLoggingIn] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [savingSubjects, setSavingSubjects] = useState<string[]>([])
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const isLoadingPortal = loggingIn || syncing || preparingDashboard
@@ -107,11 +201,10 @@ export default function App() {
   }, [searchTerm, selectedPeriod, visibleSubjects])
   const absenceSummary = useMemo(() => {
     const numericAbsences = filteredSubjects
-      .map((subject) => Number(subject.absences))
-      .filter((value) => Number.isFinite(value))
+      .map((subject) => subject.trackedAbsences)
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
 
     return {
-      subjectsWithData: numericAbsences.length,
       totalAbsences: numericAbsences.reduce((sum, value) => sum + value, 0),
     }
   }, [filteredSubjects])
@@ -119,6 +212,31 @@ export default function App() {
   function getDefaultVisibleSubjects(nextPeriods: Period[], periodKey: string) {
     const period = nextPeriods.find((item) => item.key === periodKey) ?? nextPeriods[0] ?? null
     return period?.subjects.map((subject) => subject.name) ?? []
+  }
+
+  function updateSubjectState(
+    periodKey: string,
+    subjectName: string,
+    updater: (subject: Subject) => Subject,
+  ) {
+    setPeriods((current) =>
+      current.map((period) =>
+        period.key === periodKey
+          ? {
+              ...period,
+              subjects: period.subjects.map((subject) =>
+                subject.name === subjectName ? deriveSubject(updater(subject)) : subject,
+              ),
+            }
+          : period,
+      ),
+    )
+  }
+
+  function getSubject(periodKey: string, subjectName: string) {
+    return periods
+      .find((period) => period.key === periodKey)
+      ?.subjects.find((subject) => subject.name === subjectName)
   }
 
   async function syncPortal() {
@@ -135,7 +253,7 @@ export default function App() {
           throw new Error(data.message || 'Falha ao carregar periodos.')
         }
 
-        const nextPeriods = (data.periods ?? []) as Period[]
+        const nextPeriods = hydratePeriods((data.periods ?? []) as Period[])
         if (!nextPeriods.length) {
           throw new Error('Nao foi possivel identificar os periodos na pagina de notas.')
         }
@@ -249,6 +367,51 @@ export default function App() {
       setError(syncError instanceof Error ? syncError.message : 'Falha ao carregar periodos.')
     } finally {
       setSyncing(false)
+    }
+  }
+
+  async function saveAnnotation(periodKey: string, subjectName: string) {
+    const subject = getSubject(periodKey, subjectName)
+    if (!subject) {
+      return
+    }
+
+    const saveKey = subjectStateKey(periodKey, subjectName)
+    setSavingSubjects((current) => [...new Set([...current, saveKey])])
+    setError(null)
+    setMessage(null)
+
+    try {
+      const response = await fetch(apiUrl('/api/annotations'), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          periodKey,
+          subjectName,
+          manualAbsences: subject.manualAbsences,
+          maxAbsences: subject.manualMaxAbsences,
+          gradeEntries: subject.gradeEntries ?? [],
+        }),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.message || 'Nao foi possivel salvar as anotacoes.')
+      }
+
+      updateSubjectState(periodKey, subjectName, (current) => ({
+        ...current,
+        manualAbsences: data.manualAbsences,
+        manualMaxAbsences: data.maxAbsences,
+        gradeEntries: data.gradeEntries ?? [],
+      }))
+      setMessage(`Anotacoes salvas em ${subjectName}.`)
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error ? saveError.message : 'Nao foi possivel salvar as anotacoes.',
+      )
+    } finally {
+      setSavingSubjects((current) => current.filter((item) => item !== saveKey))
     }
   }
 
@@ -438,7 +601,7 @@ export default function App() {
           </label>
           <p className="hint">
             {selectedPeriod
-              ? `${selectedPeriod.subjects.length} disciplina(s) neste periodo. Use a busca ou a selecao abaixo para mostrar as materias.`
+              ? `${selectedPeriod.subjects.length} disciplina(s) neste periodo. Agora voce pode acompanhar faltas, notas e media manualmente.`
               : 'Atualize o portal para carregar os periodos.'}
           </p>
         </article>
@@ -460,6 +623,9 @@ export default function App() {
               <strong>{absenceSummary.totalAbsences}</strong>
             </div>
           </div>
+          <p className="hint helper-text">
+            Limites conhecidos usam 25% da carga horaria, considerando periodos de 50 minutos.
+          </p>
           {isLoadingPortal ? (
             <div className="loading-card" aria-live="polite">
               <div className="loading-dot" />
@@ -581,24 +747,192 @@ export default function App() {
           </p>
         ) : (
           <div className="subject-list">
-            {filteredSubjects.map((subject) => (
-              <article className="subject-card" key={`${selectedPeriod.key}-${subject.name}`}>
-                <div className="subject-card-top">
-                  <div>
-                    <h3>{subject.name}</h3>
-                    <p>{selectedPeriod.label}</p>
-                  </div>
-                </div>
+            {filteredSubjects.map((subject) => {
+              const saveKey = subjectStateKey(selectedPeriod.key, subject.name)
+              const isSaving = savingSubjects.includes(saveKey)
+              const editableGrades =
+                subject.gradeEntries && subject.gradeEntries.length > 0 ? subject.gradeEntries : ['']
 
-                <div className="subject-details">
-                  <div className="subject-meta">
-                    <span>
-                      <strong>Faltas:</strong> {subject.absences ?? 'Nao encontrado'}
-                    </span>
+              return (
+                <article className="subject-card" key={`${selectedPeriod.key}-${subject.name}`}>
+                  <div className="subject-card-top">
+                    <div>
+                      <h3>{subject.name}</h3>
+                      <p>{selectedPeriod.label}</p>
+                    </div>
                   </div>
-                </div>
-              </article>
-            ))}
+
+                  <div className="subject-details">
+                    <div className="subject-stat-grid">
+                      <div className="subject-stat">
+                        <span>Faltas acompanhadas</span>
+                        <strong>{subject.trackedAbsences ?? 'Sem dado'}</strong>
+                      </div>
+                      <div className="subject-stat">
+                        <span>Media atual</span>
+                        <strong>{formatDecimal(subject.gradeAverage)}</strong>
+                      </div>
+                      <div className="subject-stat">
+                        <span>Pode faltar</span>
+                        <strong>
+                          {subject.remainingAbsences != null
+                            ? subject.remainingAbsences
+                            : 'Configure o limite'}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div className="subject-meta">
+                      <span>
+                        <strong>Portal:</strong>{' '}
+                        {subject.portalAbsences != null ? subject.portalAbsences : 'Sem dado'}
+                      </span>
+                      <span>
+                        <strong>Limite atual:</strong>{' '}
+                        {subject.maxAbsences != null ? `${subject.maxAbsences} faltas` : 'Pendente'}
+                      </span>
+                      <span>
+                        <strong>Carga horaria:</strong>{' '}
+                        {subject.configuredHours != null
+                          ? `${subject.configuredHours} horas (${subject.configuredPeriods} periodos)`
+                          : 'Ainda nao configurada'}
+                      </span>
+                    </div>
+
+                    <details className="annotation-box">
+                      <summary className="annotation-summary">Atualizar faltas e notas</summary>
+
+                      <div className="annotation-grid">
+                        <label>
+                          Faltas anotadas
+                          <input
+                            type="number"
+                            min="0"
+                            value={subject.manualAbsences ?? ''}
+                            placeholder={
+                              subject.portalAbsences != null
+                                ? `Portal: ${subject.portalAbsences}`
+                                : 'Ex.: 2'
+                            }
+                            onChange={(event) => {
+                              const value = event.target.value
+                              updateSubjectState(selectedPeriod.key, subject.name, (current) => ({
+                                ...current,
+                                manualAbsences: value === '' ? null : Number(value),
+                              }))
+                            }}
+                          />
+                        </label>
+
+                        <label>
+                          Limite de faltas
+                          <input
+                            type="number"
+                            min="0"
+                            value={subject.manualMaxAbsences ?? ''}
+                            placeholder={
+                              subject.maxAbsencesSource === 'default' && subject.maxAbsences != null
+                                ? `Sugerido: ${subject.maxAbsences}`
+                                : 'Preencher depois'
+                            }
+                            onChange={(event) => {
+                              const value = event.target.value
+                              updateSubjectState(selectedPeriod.key, subject.name, (current) => ({
+                                ...current,
+                                manualMaxAbsences: value === '' ? null : Number(value),
+                              }))
+                            }}
+                          />
+                        </label>
+                      </div>
+
+                      <p className="hint helper-text">
+                        {subject.maxAbsencesSource === 'default' && subject.maxAbsences != null
+                          ? `Sugerimos ${subject.maxAbsences} faltas a partir da carga horaria informada.`
+                          : subject.maxAbsencesSource === 'manual'
+                          ? 'Esse limite foi ajustado manualmente.'
+                          : 'Ainda nao existe um limite configurado para essa materia.'}
+                      </p>
+
+                      <div className="notes-section">
+                        <div className="notes-section-header">
+                          <div>
+                            <strong>Notas</strong>
+                            <p className="hint helper-text">
+                              A media e recalculada automaticamente conforme voce preenche.
+                            </p>
+                          </div>
+                          <button
+                            className="ghost-button"
+                            type="button"
+                            onClick={() => {
+                              updateSubjectState(selectedPeriod.key, subject.name, (current) => ({
+                                ...current,
+                                gradeEntries: [...(current.gradeEntries ?? []), ''],
+                              }))
+                            }}
+                          >
+                            Adicionar nota
+                          </button>
+                        </div>
+
+                        <div className="notes-list">
+                          {editableGrades.map((entry, index) => (
+                            <div className="note-row" key={`${subject.name}-nota-${index}`}>
+                              <label>
+                                Nota {index + 1}
+                                <input
+                                  value={entry}
+                                  placeholder="Ex.: 8,5"
+                                  onChange={(event) => {
+                                    const value = event.target.value
+                                    updateSubjectState(selectedPeriod.key, subject.name, (current) => {
+                                      const nextEntries =
+                                        current.gradeEntries && current.gradeEntries.length > 0
+                                          ? [...current.gradeEntries]
+                                          : ['']
+                                      nextEntries[index] = value
+
+                                      return {
+                                        ...current,
+                                        gradeEntries: nextEntries,
+                                      }
+                                    })
+                                  }}
+                                />
+                              </label>
+                              <button
+                                className="ghost-button note-remove-button"
+                                type="button"
+                                onClick={() => {
+                                  updateSubjectState(selectedPeriod.key, subject.name, (current) => ({
+                                    ...current,
+                                    gradeEntries: (current.gradeEntries ?? []).filter(
+                                      (_, entryIndex) => entryIndex !== index,
+                                    ),
+                                  }))
+                                }}
+                              >
+                                Remover
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <button
+                        className="secondary-button subject-save-button"
+                        type="button"
+                        onClick={() => void saveAnnotation(selectedPeriod.key, subject.name)}
+                        disabled={isSaving}
+                      >
+                        {isSaving ? 'Salvando...' : 'Salvar anotacoes'}
+                      </button>
+                    </details>
+                  </div>
+                </article>
+              )
+            })}
           </div>
         )}
       </section>
