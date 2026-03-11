@@ -1,0 +1,7 @@
+tunnel: SEU_TUNNEL_ID
+credentials-file: C:\Users\welli\.cloudflared\SEU_TUNNEL_ID.json
+
+ingress:
+  - hostname: dashboard-faltas.seudominio.com
+    service: http://localhost:5000
+  - service: http_status:404

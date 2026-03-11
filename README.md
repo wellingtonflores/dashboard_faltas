@@ -74,6 +74,19 @@ Neste portal especifico, pode ser necessario desativar a verificacao SSL na tela
 3. Adicione um servico Redis e exponha a variavel `REDIS_URL`.
 4. Defina `FRONTEND_URL` com a URL da Vercel.
 
+## URL fixa com Cloudflare Tunnel
+
+Se voce quiser compartilhar o app com um link que nao muda, use um tunnel nomeado da Cloudflare em vez de `trycloudflare.com`.
+
+Arquivos de apoio:
+
+- [cloudflared/README.md](C:/Users/welli/OneDrive/Documentos/Playground/cloudflared/README.md)
+- [cloudflared/config.example.yml](C:/Users/welli/OneDrive/Documentos/Playground/cloudflared/config.example.yml)
+
+Nesse modelo, o app continua rodando localmente na sua maquina, mas com um hostname fixo, por exemplo:
+
+`https://dashboard-faltas.seudominio.com`
+
 ## URLs atuais
 
 - frontend: [dashboard-faltas.vercel.app](https://dashboard-faltas.vercel.app)
